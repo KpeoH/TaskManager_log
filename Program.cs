@@ -1,18 +1,25 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Newtonsoft.Json;
+using Serilog;
 
 namespace TaskManager_log
 {
     internal class Program
     {
         static readonly string taskManagerFile = "Tasks.json";
+
         static void Main(string[] args)
         {
-            string fileLogPath = "program_log.txt";
-            Trace.Listeners.Add(new TextWriterTraceListener(fileLogPath));
-            Trace.Listeners.Add(new TextWriterTraceListener(Console.Out));
-            Trace.AutoFlush = true;
-            Trace.WriteLine($"\n[{DateTime.Now}] Программа запущена");
+            // Настройка Serilog
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.Console()  // Логирование в консоль
+                .WriteTo.File("logs\\task_manager_log.json", rollingInterval: RollingInterval.Day,
+                    fileSizeLimitBytes: 10_000_000, 
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                    restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)  
+                .CreateLogger();
+
+            Log.Information("Программа запущена");
 
             while (true)
             {
@@ -26,50 +33,56 @@ namespace TaskManager_log
                 switch (userChoise)
                 {
                     case "1":
-                        Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Пользователь выбрал режим добавления задачи");
+                        Log.Information("Пользователь выбрал режим добавления задачи");
                         AddTask();
                         break;
                     case "2":
-                        Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Пользователь выбрал режим просмотра всех задач");
+                        Log.Information("Пользователь выбрал режим просмотра всех задач");
                         ViewTasks();
                         break;
                     case "3":
-                        Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Пользователь выбрал режим удаления задачи");
+                        Log.Information("Пользователь выбрал режим удаления задачи");
                         DeleteTask();
                         break;
                     case "4":
-                        Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Пользователь выбрал режим изменения статуса задачи");
+                        Log.Information("Пользователь выбрал режим изменения статуса задачи");
                         MarkTaskAsCompleted();
                         break;
                     case "5":
-                        Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Пользователь решил завершить выполнение программы");
-                        return;
+                        Log.Information("Пользователь решил завершить выполнение программы");
+
+
+                        var memoryUsage = Process.GetCurrentProcess().PrivateMemorySize64;
+                        Log.Information($"Текущее потребление памяти: {memoryUsage / (1024 * 1024)} MB");
+                        Console.WriteLine($"Текущее потребление памяти: {memoryUsage / (1024 * 1024)} MB");
+                        Console.ReadKey();
+                        return;  
+
                     default:
-                        Trace.TraceWarning($"[{DateTime.Now:HH:MM:ss}] Введена некорректная команда.");
+                        Log.Warning("Введена некорректная команда.");
                         Console.WriteLine("Неверный выбор. Попробуйте снова.");
                         break;
                 }
             }
         }
 
-
         static List<TaskItem> LoadTasks()
         {
             if (!File.Exists(taskManagerFile))
             {
-                Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] файл Tasks.json не существует. Создаём новый.");
+                Log.Information("Файл Tasks.json не существует. Создаём новый.");
                 return new List<TaskItem>();
             }
             try
             {
                 string json = File.ReadAllText(taskManagerFile);
                 var tasks = JsonConvert.DeserializeObject<List<TaskItem>>(json);
-                Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Задачи успешно загружены из файла.");
+                Log.Information("Задачи успешно загружены из файла.");
                 return tasks ?? new List<TaskItem>();
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"[{DateTime.Now:HH:MM:ss}] Ошибка при загрузки задач: {ex.Message}");
+                Log.Error("Ошибка при загрузке задач: {Message}", ex.Message);
                 throw;
             }
         }
@@ -80,14 +93,12 @@ namespace TaskManager_log
             {
                 string json = JsonConvert.SerializeObject(tasks, Formatting.Indented);
                 File.WriteAllText(taskManagerFile, json);
-                Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Задачи успешно сохранены в файл.");
+                Log.Information("Задачи успешно сохранены в файл.");
             }
             catch (Exception ex)
             {
-                {
-                    Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Ошибка при сохранении файла: {ex.Message}");
-                    throw;
-                }
+                Log.Error("Ошибка при сохранении файла: {Message}", ex.Message);
+                throw;
             }
         }
 
@@ -95,7 +106,7 @@ namespace TaskManager_log
         {
             Console.WriteLine("Введите название задачи");
             string? name = Console.ReadLine();
-            Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Пользователь ввёл название задачи: {name}");
+            Log.Information("Пользователь ввёл название задачи: {TaskName}", name);
 
             var tasks = LoadTasks();
             int newId = tasks.Count > 0 ? tasks.Max(t => t.Id) + 1 : 1;
@@ -103,25 +114,25 @@ namespace TaskManager_log
             tasks.Add(new TaskItem { Id = newId, Name = name!, IsCompleted = false });
             SaveTasks(tasks);
 
-            Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Задача '{name}' добавлена с ID {newId}.");
+            Log.Information("Задача '{TaskName}' добавлена с ID {TaskId}.", name, newId);
             Console.WriteLine("Задача успешно добавлена.");
         }
 
         static void ViewTasks()
         {
             var tasks = LoadTasks();
-            if (tasks.Count == 0 )
+            if (tasks.Count == 0)
             {
-                Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Список задач пуст.");
+                Log.Information("Список задач пуст.");
                 Console.WriteLine("Список задач пуст");
             }
 
             Console.WriteLine("\n=== СПИСОК ЗАДАЧ ===");
-            foreach ( var task in tasks )
+            foreach (var task in tasks)
             {
                 Console.WriteLine($"Id: {task.Id}, Задача: {task.Name}, Выполнено ли: {task.IsCompleted}");
             }
-            Trace.TraceInformation($"\n[{DateTime.Now:HH:MM:ss}] Список задач выведен на экран.");
+            Log.Information("Список задач выведен на экран.");
         }
 
         static void DeleteTask()
@@ -129,7 +140,7 @@ namespace TaskManager_log
             Console.WriteLine("Введите ID задачи для удаления");
             if (!int.TryParse(Console.ReadLine(), out int taskId))
             {
-                Trace.TraceWarning($"[{DateTime.Now:HH:MM:ss}] Введен некорректный ID задачи.");
+                Log.Warning("Введен некорректный ID задачи.");
                 Console.WriteLine("Неверный ID. Попробуйте снова.");
                 return;
             }
@@ -138,7 +149,7 @@ namespace TaskManager_log
 
             if (taskToRemove == null)
             {
-                Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Задача с {taskId} не найдена.");
+                Log.Information("Задача с ID {TaskId} не найдена.", taskId);
                 Console.WriteLine("Задача не найдена.");
                 return;
             }
@@ -146,7 +157,7 @@ namespace TaskManager_log
             tasks.Remove(taskToRemove);
             SaveTasks(tasks);
 
-            Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Задача с ID {taskId} успешно удалена.");
+            Log.Information("Задача с ID {TaskId} успешно удалена.", taskId);
             Console.WriteLine("Задача успешно удалена.");
         }
 
@@ -155,7 +166,7 @@ namespace TaskManager_log
             Console.WriteLine("Введите ID задачи для изменения её статуса выполнения.");
             if (!int.TryParse(Console.ReadLine(), out int taskId))
             {
-                Trace.TraceWarning($"[{DateTime.Now:HH:MM:ss}] Введен некорректный ID задачи.");
+                Log.Warning("Введен некорректный ID задачи.");
                 Console.WriteLine("Неверный ID. Попробуйте снова.");
                 return;
             }
@@ -165,10 +176,9 @@ namespace TaskManager_log
             taskToComplete!.IsCompleted = true;
             SaveTasks(tasks);
 
-            Trace.TraceInformation($"[{DateTime.Now:HH:MM:ss}] Статус задачи с ID {taskId} успешно изменён.");
+            Log.Information("Статус задачи с ID {TaskId} успешно изменён.", taskId);
             Console.WriteLine("Задача помечена как выполненная.");
         }
-
 
         public class TaskItem
         {
@@ -178,4 +188,3 @@ namespace TaskManager_log
         }
     }
 }
-
